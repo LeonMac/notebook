@@ -1,0 +1,6 @@
+[submodule "poetry/deepth=1"]
+	path = poetry/deepth=1
+	url = https://github.com/chinese-poetry/chinese-poetry.git
+[submodule "poetry/chinese-poetry"]
+	path = poetry/chinese-poetry
+	url = https://github.com/chinese-poetry/chinese-poetry.git
