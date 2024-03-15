@@ -27,9 +27,11 @@
             "name": "全唐诗全宋诗",
             "id": 3,
             "path": "全唐诗/",
-            "excludes": ["README.md", "表面结构字.json", "error", "authors.song.json", "authors.tang.json"],
+            "excludes": ["README.md", "表面结构字.json", "error"],
+            "author_file": ["authors.song.json", "authors.tang.json"],
             "author": "author",
-            "paragraphs": "paragraphs"
+            "paragraphs": "paragraphs",
+            "author_name": "name"
         },
         "mengzi": {
             "name": "四书五经-孟子", 
