@@ -2,6 +2,21 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from decimal import Decimal
+import timeit
+## timing decorator
+def timing(func):
+    """decoration for timing calculation"""
+    def get_timing(*args, **kwargs):
+        _begin = timeit.default_timer()
+        result = func(*args, **kwargs)
+        duration = timeit.default_timer() - _begin
+        d = Decimal(str(duration)).quantize(Decimal("0.001"), rounding = "ROUND_HALF_UP")
+        d_str = f"time: {d} sec"
+        print(f"{func.__name__} takes {d_str} seconds\n")
+        return result, d_str
+    return get_timing
+
 # hyperparameters
 batch_size = 64 # how many independent sequences will we process in parallel?
 block_size = 256 # what is the maximum context length for predictions?
@@ -48,7 +63,7 @@ def get_batch(split):
     return x, y
 
 @torch.no_grad()
-def estimate_loss():
+def estimate_loss(model):
     out = {}
     model.eval()
     for split in ['train', 'val']:
@@ -195,45 +210,108 @@ class GPTLanguageModel(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)
         return idx
 
-import sys
+def load_pretrained_model(pre_train_model: str):
+    model = GPTLanguageModel()  # 初始化模型
+    model.load_state_dict(torch.load(pre_train_model))
+    model.eval()  # 设置为评估模式
+    return model
 
-if __name__ == "__main__":
-    # 检查是否有足够的参数
-    if len(sys.argv) == 3:
-        # sys.argv[1] 是第一个命令行参数
-        max_iters  = int(sys.argv[1])
-        print_iter = int(sys.argv[2])
+@timing
+def train_model(name: str, iter:int, eval_interval:int, pre_train: str= None):
+    
+    if pre_train == None:
+        model = GPTLanguageModel()
     else:
-        print("没有提供合适命令行参数。")
-
-    model = GPTLanguageModel()
+        model = load_pretrained_model(pre_train)
+        
     m = model.to(device)
+
     # print the number of parameters in the model
     print(sum(p.numel() for p in m.parameters())/1e6, 'M parameters')
-
+    
     # create a PyTorch optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-
-    for iter in range(max_iters):
-
+    
+    for iter in range(iter):
+    
         # every once in a while evaluate the loss on train and val sets
-        if iter % eval_interval == 0 or iter == max_iters - 1:
-            losses = estimate_loss()
+        if iter % eval_interval == 0 or iter == iter - 1:
+            losses = estimate_loss(m)
             print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-
+    
         # sample a batch of data
         xb, yb = get_batch('train')
-
+    
         # evaluate the loss
         logits, loss = model(xb, yb)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
-        
-        if iter % print_iter == 0:
-            print(f"epoch[{iter}]: loss={loss.item()}")
+    
+    model_name = f"{name}.pth"
+    # 保存模型的状态字典
+    torch.save(m.state_dict(), model_name)
+    print(f"model is saved as {model_name}")
+    return m
 
+
+def test_model(m, max_token):  
     # generate from the model
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
-    print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
-    #open('more.txt', 'w').write(decode(m.generate(context, max_new_tokens=10000)[0].tolist()))
+    print(decode(m.generate(context, max_new_tokens=max_token)[0].tolist()))
+
+
+
+
+import sys
+
+if __name__ == "__main__":
+    # 检查是否有足够的参数
+    if len(sys.argv) == 3:
+        max_iters  = int(sys.argv[1])
+        print_iter = int(sys.argv[2])
+    else:
+        print("没有提供合适命令行参数。")
+
+    # model = GPTLanguageModel()
+    # m = model.to(device)
+    # # print the number of parameters in the model
+    # print(sum(p.numel() for p in m.parameters())/1e6, 'M parameters')
+
+    # # create a PyTorch optimizer
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+
+    # for iter in range(max_iters):
+
+    #     # every once in a while evaluate the loss on train and val sets
+    #     if iter % eval_interval == 0 or iter == max_iters - 1:
+    #         losses = estimate_loss()
+    #         print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+
+    #     # sample a batch of data
+    #     xb, yb = get_batch('train')
+
+    #     # evaluate the loss
+    #     logits, loss = model(xb, yb)
+    #     optimizer.zero_grad(set_to_none=True)
+    #     loss.backward()
+    #     optimizer.step()
+        
+    #     if iter % print_iter == 0:
+    #         print(f"epoch[{iter}]: loss={loss.item()}")
+
+    # # generate from the model
+    # context = torch.zeros((1, 1), dtype=torch.long, device=device)
+    # print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
+    # #open('more.txt', 'w').write(decode(m.generate(context, max_new_tokens=10000)[0].tolist()))
+
+    # my_model = train_model("first_1k", max_iters, print_iter, None)
+    # test_model(my_model, 300)
+    my_model = train_model("second_1k", 1000, 10, 'first_1k.pth')
+    test_model(my_model, 300)
+    my_model = train_model("third_1k", 1000, 100, 'second_1k.pth')
+    test_model(my_model, 300)
+    my_model = train_model("fourth_1k", 1000, 100, 'third_1k.pth')
+    test_model(my_model, 300)
+    my_model = train_model("fifth_1k", 1000, 100, 'fourth_1k.pth') 
+    test_model(my_model, 300)
