@@ -21,15 +21,18 @@ def timing(func):
     return get_timing
 
 # hyperparameters
-batch_size = 64 # how many independent sequences will we process in parallel?
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+batch_size = 128 # how many independent sequences will we process in parallel?
 block_size = 256 # what is the maximum context length for predictions?
+
 # max_iters = 5000
 # eval_interval = 500
-learning_rate = 3e-4
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # eval_iters = 200
+
+learning_rate = 3e-4
 n_embd = 384
-n_head = 6
+n_head = 8
 n_layer = 6
 dropout = 0.2
 # ------------
@@ -65,7 +68,9 @@ def get_batch(split):
     x, y = x.to(device), y.to(device)
     return x, y
 
-@torch.no_grad()  # 在estimate_loss中所有计算都不会跟踪梯度，不会进行任何梯度更新。这在评估模型或进行不涉及反向传播的计算时非常有用，因为它可以减少内存消耗并提高计算速度
+@torch.no_grad()  
+# @torch.no_grad() 装饰器下所有计算都不会跟踪梯度，不会进行任何梯度更新。这在评估模型或进行不涉及反向传播的计算时非常有用，
+# 因为它可以减少内存消耗并提高计算速度。在做模型推理时候用。
 def estimate_loss(model):
     eval_iters = 200
     out = {}
@@ -94,8 +99,6 @@ class MyModel(nn.Module):
         
     def generate(self, idx, max_new_tokens):
         pass
-
-
 
 ## -----------------------------
 
@@ -320,6 +323,7 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
     
         # sample a batch of data
         xb, yb = get_batch('train')
+        xb, yb = xb.to(device), yb.to(device)
     
         # evaluate the loss
         logits, loss = m(xb, yb)
@@ -367,7 +371,7 @@ if __name__ == "__main__":
     DRY_RUN = False
     
     model_name_list = ['first','second','third','fourth','fifth']
-    iter_list       = [100,    100,    100,   100,   100]
+    iter_list       = [100,    1000,    1000,   1000,   1000]
 
     for n in range(len(model_name_list)):
 
@@ -382,5 +386,6 @@ if __name__ == "__main__":
         # print(f"n={n}, load_name = {load_name}, save_name={save_name}")
 
         train_model(iter_list[n], print_iter, load_name, save_name,  DRY_RUN)
+
         test_model(save_name, iter_list[n], 300)
 
