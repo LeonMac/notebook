@@ -230,12 +230,10 @@ class GPTLanguageModel(nn.Module):
         return idx
     
 
-def load_pretrained_model(pre_train_model: str, post_load_action: str= 'train'):
+def load_pretrained_model(model:nn.Module, pre_train_model: str, post_load_action: str= 'train'):
+
     if not isinstance(pre_train_model, str):
         raise ValueError(f"pre_train_model{pre_train_model} must be a string representing a file path")
-    
-    model = GPTLanguageModel()  # 初始化模型
-    # model = MyModel()
     
     try:
         model.load_state_dict(torch.load(pre_train_model))
@@ -248,17 +246,24 @@ def load_pretrained_model(pre_train_model: str, post_load_action: str= 'train'):
         model.eval()  
     return model
 
-@timing
-def train_model(name: str, iter:int, eval_interval:int, pre_train_path: str= None, dry_run: bool = False):
+def create_model(pre_train_path: str= None, mode: str = 'train'):
     
+    model = GPTLanguageModel()
+    # model = MyModel()
+
     if pre_train_path == None:
-        model = GPTLanguageModel()
-        #model = MyModel()
+        print("init model...")
     else:
-        print(f"pre_train_path = {pre_train_path} ")
-        model = load_pretrained_model(pre_train_path, 'train')
-        
-    m = model.to(device)
+        model = load_pretrained_model(model, pre_train_path, mode)
+
+    return model
+
+
+
+@timing
+def train_model(iter:int, eval_interval:int, pre_train_path: str= None, save_path: str='./model.pth', dry_run: bool = False):
+    print(f"train model")
+    m = create_model(pre_train_path, 'train').to(device)
 
     # print the number of parameters in the model
     print(f"load model with {sum(p.numel() for p in m.parameters())/1e6} M parameters")
@@ -274,7 +279,7 @@ def train_model(name: str, iter:int, eval_interval:int, pre_train_path: str= Non
         # every once in a while evaluate the loss on train and val sets
         if iter % eval_interval == 0 or iter == iter - 1:
             losses = estimate_loss(m)
-            print(f"step '{iter:<10} train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            print(f"step {iter:<6} train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
     
         # sample a batch of data
         xb, yb = get_batch('train')
@@ -290,21 +295,16 @@ def train_model(name: str, iter:int, eval_interval:int, pre_train_path: str= Non
     # "optimizer_state": optimizer.state_dict()
     # }
    
-    model_name = f"{name}.pth"
-    torch.save(m.state_dict(), model_name)
-    print(f"model train completed, model is saved as {model_name}")
-    return m
+    # model_name = f"{save_name}_{iter}.pth"
+    torch.save(m.state_dict(), save_path)
+    print(f"model train completed, model is saved as {save_path}")
+    # return m
 
 
-def test_model(name: str, max_token: int =300, pre_train_path: str= None):
-    if pre_train_path == None:
-        model = GPTLanguageModel()
-        # model = MyModel()
-    else:
-        print(f"pre_train_path = {pre_train_path} ")
-        model = load_pretrained_model(pre_train_path, 'eval')
-        
-    m = model.to(device)
+def test_model(pre_train_path: str= None, max_token: int =300):
+    print(f"test model")
+    m = create_model(pre_train_path, 'eval').to(device)
+
     # generate from the model
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
     print("\n")
@@ -326,19 +326,19 @@ if __name__ == "__main__":
     else:
         print("没有提供合适命令行参数。")
 
-    DRY_RUN = True
+    DRY_RUN = False
+    
+    model_path_list= ['first','second','third','fourth','fifth']
 
-    my_model = train_model("first_1k", max_iters, print_iter, None,  DRY_RUN)
-    test_model('first_1k.pth', 300)
-    my_model = train_model("second_1k", 1000, 100, './first_1k.pth', DRY_RUN)
-    test_model('second_1k.pth', 300)
-    my_model = train_model("third_1k", 1000, 100, './second_1k.pth', DRY_RUN)
-    test_model(my_model, 300)
-    my_model = train_model("fourth_1k", 1000, 100, './third_1k.pth', DRY_RUN)
-    test_model(my_model, 300)
-    my_model = train_model("fifth_1k", 1000, 100, './fourth_1k.pth', DRY_RUN)
-    test_model(my_model, 300)
+    for n in range(len(model_path_list)):
+        if n == 0:
+            load_path = None
+            save_path = f"./{model_path_list[n]}_{max_iters}"
+        else:
+            load_path = f"./{model_path_list[n-1]}_{max_iters}"
+            save_path = f"./{model_path_list[n]}_{max_iters}"
 
-    # for i in range (5):
-    #     my_model = train_model("temp", 1000, 100, './third_1k.pth', DRY_RUN)
-    #     test_model('first_1k.pth', 300)
+        # print(f"n={n}, load_path = {load_path}, save_name={save_path}")
+        train_model(max_iters, print_iter, load_path, save_path,  DRY_RUN)
+        test_model(save_path, 300)
+
