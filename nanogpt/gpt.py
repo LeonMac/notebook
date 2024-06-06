@@ -4,6 +4,9 @@ from torch.nn import functional as F
 
 from decimal import Decimal
 import timeit
+import os
+import sys
+
 ## timing decorator
 def timing(func):
     """decoration for timing calculation"""
@@ -232,9 +235,9 @@ class GPTLanguageModel(nn.Module):
 
 def load_pretrained_model(model:nn.Module, pre_train_model: str, post_load_action: str= 'train'):
 
-    if not isinstance(pre_train_model, str):
-        raise ValueError(f"pre_train_model{pre_train_model} must be a string representing a file path")
-    
+    # if not isinstance(pre_train_model, str):
+    #     raise ValueError(f"pre_train_model{pre_train_model} must be a string representing a file path")
+
     try:
         model.load_state_dict(torch.load(pre_train_model))
     except Exception as e:
@@ -246,32 +249,66 @@ def load_pretrained_model(model:nn.Module, pre_train_model: str, post_load_actio
         model.eval()  
     return model
 
-def create_model(pre_train_path: str= None, mode: str = 'train'):
+def create_model(model_path: str= None, mode: str = 'train'):
     
     model = GPTLanguageModel()
     # model = MyModel()
 
-    if pre_train_path == None:
-        print("init model...")
+    if model_path == None:
+        print("init model from random...")
     else:
-        model = load_pretrained_model(model, pre_train_path, mode)
+
+        model = load_pretrained_model(model, model_path, mode)
 
     return model
+
+def make_path(root_path_name: str, name:str, suffix: int, type:str='mdl'):
+    if root_path_name == None:
+        current_path = os.getcwd()
+    else:
+        current_path = root_path_name
+
+    f_name = f"{name}_{type}_{suffix}.pth"
+
+    return os.path.join(current_path, f_name)
 
 
 
 @timing
-def train_model(iter:int, eval_interval:int, pre_train_path: str= None, save_path: str='./model.pth', dry_run: bool = False):
+def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, dry_run: bool = False):
     print(f"train model")
-    m = create_model(pre_train_path, 'train').to(device)
+
+    if load_name != None:
+        model_load_path = make_path(None, load_name, max_iter, 'mdl' )
+        opt_load_path   = make_path(None, load_name, max_iter, 'opt' )
+    else:
+        model_load_path = None
+        opt_load_path   = None
+
+    if save_name != None:
+        model_save_path = make_path(None, save_name, max_iter, 'mdl' )
+        opt_save_path   = make_path(None, save_name, max_iter, 'opt' )
+    else:
+        model_save_path = None
+        opt_save_path   = None
+
+    m = create_model(model_load_path, 'train').to(device)
 
     # print the number of parameters in the model
     print(f"load model with {sum(p.numel() for p in m.parameters())/1e6} M parameters")
     
     # create a PyTorch optimizer
     optimizer = torch.optim.AdamW(m.parameters(), lr=learning_rate)
+    if opt_load_path != None:
+        optimizer.load_state_dict(torch.load(opt_load_path, map_location=device))
+
     
-    for iter in range(iter):
+    for state in optimizer.state.values():
+        for k, v in state.items():
+            if torch.is_tensor(v):
+                state[k] = v.to(device)
+    
+    for iter in range(max_iter):
         if dry_run:
             print(f"dry_run : exist after before iter: {iter}")
             break
@@ -279,7 +316,7 @@ def train_model(iter:int, eval_interval:int, pre_train_path: str= None, save_pat
         # every once in a while evaluate the loss on train and val sets
         if iter % eval_interval == 0 or iter == iter - 1:
             losses = estimate_loss(m)
-            print(f"step {iter:<6} train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            print(f"step [{iter:<6}]: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
     
         # sample a batch of data
         xb, yb = get_batch('train')
@@ -295,14 +332,18 @@ def train_model(iter:int, eval_interval:int, pre_train_path: str= None, save_pat
     # "optimizer_state": optimizer.state_dict()
     # }
    
-    # model_name = f"{save_name}_{iter}.pth"
-    torch.save(m.state_dict(), save_path)
-    print(f"model train completed, model is saved as {save_path}")
+    # opt_save = f"{save_name}_opt_{iter}.pth"
+    print(f"model train completed, model will be saved as {model_save_path}, optimizer is saved as {opt_save_path}")
+    torch.save(m.state_dict(), model_save_path)
+    torch.save(optimizer.state_dict(), opt_save_path)
+
     # return m
 
 
-def test_model(pre_train_path: str= None, max_token: int =300):
+def test_model(save_name: str, sufix:int, max_token: int =300):
     print(f"test model")
+    pre_train_path = make_path(None, save_name, sufix, 'mdl' )
+
     m = create_model(pre_train_path, 'eval').to(device)
 
     # generate from the model
@@ -316,29 +357,30 @@ def test_model(pre_train_path: str= None, max_token: int =300):
 
 
 
-import sys
-
 if __name__ == "__main__":
     # 检查是否有足够的参数
-    if len(sys.argv) == 3:
-        max_iters  = int(sys.argv[1])
-        print_iter = int(sys.argv[2])
+    if len(sys.argv) == 2:
+        print_iter = int(sys.argv[1])
     else:
         print("没有提供合适命令行参数。")
 
     DRY_RUN = False
     
-    model_path_list= ['first','second','third','fourth','fifth']
+    model_name_list = ['first','second','third','fourth','fifth']
+    iter_list       = [100,    100,    100,   100,   100]
 
-    for n in range(len(model_path_list)):
+    for n in range(len(model_name_list)):
+
+
         if n == 0:
-            load_path = None
-            save_path = f"./{model_path_list[n]}_{max_iters}"
+            load_name = None
         else:
-            load_path = f"./{model_path_list[n-1]}_{max_iters}"
-            save_path = f"./{model_path_list[n]}_{max_iters}"
+            load_name = model_name_list[n-1]
 
-        # print(f"n={n}, load_path = {load_path}, save_name={save_path}")
-        train_model(max_iters, print_iter, load_path, save_path,  DRY_RUN)
-        test_model(save_path, 300)
+        save_name = model_name_list[n]
+
+        # print(f"n={n}, load_name = {load_name}, save_name={save_name}")
+
+        train_model(iter_list[n], print_iter, load_name, save_name,  DRY_RUN)
+        test_model(save_name, iter_list[n], 300)
 
