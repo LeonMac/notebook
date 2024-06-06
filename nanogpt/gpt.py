@@ -23,6 +23,9 @@ def timing(func):
 # hyperparameters
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+def gpu_avlailabe() -> bool :
+    return torch.cuda.is_available()
+
 batch_size = 128 # how many independent sequences will we process in parallel?
 block_size = 256 # what is the maximum context length for predictions?
 
@@ -32,7 +35,7 @@ block_size = 256 # what is the maximum context length for predictions?
 
 learning_rate = 3e-4
 n_embd = 384
-n_head = 8
+n_head = 12
 n_layer = 6
 dropout = 0.2
 # ------------
@@ -310,7 +313,9 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
         for k, v in state.items():
             if torch.is_tensor(v):
                 state[k] = v.to(device)
-    
+
+    accumulation_steps = 4  # https://saturncloud.io/blog/how-to-solve-cuda-out-of-memory-error-in-pytorch/
+    i = 1
     for iter in range(max_iter):
         if dry_run:
             print(f"dry_run : exist after before iter: {iter}")
@@ -319,7 +324,7 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
         # every once in a while evaluate the loss on train and val sets
         if iter % eval_interval == 0 or iter == iter - 1:
             losses = estimate_loss(m)
-            print(f"step [{iter:<6}]: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            print(f"[step {iter:<6}]: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
     
         # sample a batch of data
         xb, yb = get_batch('train')
@@ -329,7 +334,13 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
         logits, loss = m(xb, yb)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        optimizer.step()
+        if i % accumulation_steps == 0:
+            optimizer.step()
+        # optimizer.step()
+        i+=1
+        
+        if gpu_avlailabe():
+            torch.cuda.empty_cache()
 
     # save_data = {
     # "model_state": m.state_dict(),
@@ -360,7 +371,6 @@ def test_model(save_name: str, sufix:int, max_token: int =300):
     print("\n")
 
 
-
 if __name__ == "__main__":
     # 检查是否有足够的参数
     if len(sys.argv) == 2:
@@ -371,7 +381,7 @@ if __name__ == "__main__":
     DRY_RUN = False
     
     model_name_list = ['first','second','third','fourth','fifth']
-    iter_list       = [100,    1000,    1000,   1000,   1000]
+    iter_list       = [100,    100,    100,   100,   100]
 
     for n in range(len(model_name_list)):
 
