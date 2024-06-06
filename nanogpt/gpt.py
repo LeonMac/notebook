@@ -21,10 +21,10 @@ def timing(func):
 batch_size = 64 # how many independent sequences will we process in parallel?
 block_size = 256 # what is the maximum context length for predictions?
 # max_iters = 5000
-eval_interval = 500
+# eval_interval = 500
 learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-eval_iters = 200
+# eval_iters = 200
 n_embd = 384
 n_head = 6
 n_layer = 6
@@ -62,8 +62,9 @@ def get_batch(split):
     x, y = x.to(device), y.to(device)
     return x, y
 
-@torch.no_grad()
+@torch.no_grad()  # 在estimate_loss中所有计算都不会跟踪梯度，不会进行任何梯度更新。这在评估模型或进行不涉及反向传播的计算时非常有用，因为它可以减少内存消耗并提高计算速度
 def estimate_loss(model):
+    eval_iters = 200
     out = {}
     model.eval()
     for split in ['train', 'val']:
@@ -76,15 +77,33 @@ def estimate_loss(model):
     model.train()
     return out
 
+
+class MyModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layer1=nn.Linear(10,4) 
+        self.act1=nn.Sigmoid()
+  
+    def forward(self,x):
+        x=self.layer1(x)
+        x=self.act1(x)
+        return x
+        
+    def generate(self, idx, max_new_tokens):
+        pass
+
+
+
+## -----------------------------
+
 class Head(nn.Module):
     """ one head of self-attention """
-
     def __init__(self, head_size):
         super().__init__()
-        self.key = nn.Linear(n_embd, head_size, bias=False)
+        self.key   = nn.Linear(n_embd, head_size, bias=False)
         self.query = nn.Linear(n_embd, head_size, bias=False)
         self.value = nn.Linear(n_embd, head_size, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size))) # 模型中注册一个张量（buffer）。这个函数通常用于那些不是模型参数但在模型中需要使用的张量。这些张量不会在模型训练过程中更新，但它们对于模型的正向传播或反向传播是必需的。
 
         self.dropout = nn.Dropout(dropout)
 
@@ -178,7 +197,7 @@ class GPTLanguageModel(nn.Module):
         # idx and targets are both (B,T) tensor of integers
         tok_emb = self.token_embedding_table(idx) # (B,T,C)
         pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T,C)
-        x = tok_emb + pos_emb # (B,T,C)
+        x = tok_emb + pos_emb # (B,T,C) #position embedding
         x = self.blocks(x) # (B,T,C)
         x = self.ln_f(x) # (B,T,C)
         logits = self.lm_head(x) # (B,T,vocab_size)
@@ -209,57 +228,91 @@ class GPTLanguageModel(nn.Module):
             # append sampled index to the running sequence
             idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)
         return idx
+    
 
-def load_pretrained_model(pre_train_model: str):
+def load_pretrained_model(pre_train_model: str, post_load_action: str= 'train'):
+    if not isinstance(pre_train_model, str):
+        raise ValueError(f"pre_train_model{pre_train_model} must be a string representing a file path")
+    
     model = GPTLanguageModel()  # 初始化模型
-    model.load_state_dict(torch.load(pre_train_model))
-    model.eval()  # 设置为评估模式
+    # model = MyModel()
+    
+    try:
+        model.load_state_dict(torch.load(pre_train_model))
+    except Exception as e:
+        print(f"load_state_dict: {pre_train_model}, error: {e}")
+
+    if post_load_action == 'train':
+        model.train()  
+    elif post_load_action == 'eval':
+        model.eval()  
     return model
 
 @timing
-def train_model(name: str, iter:int, eval_interval:int, pre_train: str= None):
+def train_model(name: str, iter:int, eval_interval:int, pre_train_path: str= None, dry_run: bool = False):
     
-    if pre_train == None:
+    if pre_train_path == None:
         model = GPTLanguageModel()
+        #model = MyModel()
     else:
-        model = load_pretrained_model(pre_train)
+        print(f"pre_train_path = {pre_train_path} ")
+        model = load_pretrained_model(pre_train_path, 'train')
         
     m = model.to(device)
 
     # print the number of parameters in the model
-    print(sum(p.numel() for p in m.parameters())/1e6, 'M parameters')
+    print(f"load model with {sum(p.numel() for p in m.parameters())/1e6} M parameters")
     
     # create a PyTorch optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(m.parameters(), lr=learning_rate)
     
     for iter in range(iter):
+        if dry_run:
+            print(f"dry_run : exist after before iter: {iter}")
+            break
     
         # every once in a while evaluate the loss on train and val sets
         if iter % eval_interval == 0 or iter == iter - 1:
             losses = estimate_loss(m)
-            print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            print(f"step '{iter:<10} train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
     
         # sample a batch of data
         xb, yb = get_batch('train')
     
         # evaluate the loss
-        logits, loss = model(xb, yb)
+        logits, loss = m(xb, yb)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
-    
+
+    # save_data = {
+    # "model_state": m.state_dict(),
+    # "optimizer_state": optimizer.state_dict()
+    # }
+   
     model_name = f"{name}.pth"
-    # 保存模型的状态字典
     torch.save(m.state_dict(), model_name)
-    print(f"model is saved as {model_name}")
+    print(f"model train completed, model is saved as {model_name}")
     return m
 
 
-def test_model(m, max_token):  
+def test_model(name: str, max_token: int =300, pre_train_path: str= None):
+    if pre_train_path == None:
+        model = GPTLanguageModel()
+        # model = MyModel()
+    else:
+        print(f"pre_train_path = {pre_train_path} ")
+        model = load_pretrained_model(pre_train_path, 'eval')
+        
+    m = model.to(device)
     # generate from the model
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
+    print("\n")
+    print("="*30)
+    print(f"Test model by generating {max_token} tokens:")
     print(decode(m.generate(context, max_new_tokens=max_token)[0].tolist()))
-
+    print("="*30)
+    print("\n")
 
 
 
@@ -273,45 +326,19 @@ if __name__ == "__main__":
     else:
         print("没有提供合适命令行参数。")
 
-    # model = GPTLanguageModel()
-    # m = model.to(device)
-    # # print the number of parameters in the model
-    # print(sum(p.numel() for p in m.parameters())/1e6, 'M parameters')
+    DRY_RUN = True
 
-    # # create a PyTorch optimizer
-    # optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-
-    # for iter in range(max_iters):
-
-    #     # every once in a while evaluate the loss on train and val sets
-    #     if iter % eval_interval == 0 or iter == max_iters - 1:
-    #         losses = estimate_loss()
-    #         print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-
-    #     # sample a batch of data
-    #     xb, yb = get_batch('train')
-
-    #     # evaluate the loss
-    #     logits, loss = model(xb, yb)
-    #     optimizer.zero_grad(set_to_none=True)
-    #     loss.backward()
-    #     optimizer.step()
-        
-    #     if iter % print_iter == 0:
-    #         print(f"epoch[{iter}]: loss={loss.item()}")
-
-    # # generate from the model
-    # context = torch.zeros((1, 1), dtype=torch.long, device=device)
-    # print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
-    # #open('more.txt', 'w').write(decode(m.generate(context, max_new_tokens=10000)[0].tolist()))
-
-    # my_model = train_model("first_1k", max_iters, print_iter, None)
-    # test_model(my_model, 300)
-    my_model = train_model("second_1k", 1000, 10, 'first_1k.pth')
+    my_model = train_model("first_1k", max_iters, print_iter, None,  DRY_RUN)
+    test_model('first_1k.pth', 300)
+    my_model = train_model("second_1k", 1000, 100, './first_1k.pth', DRY_RUN)
+    test_model('second_1k.pth', 300)
+    my_model = train_model("third_1k", 1000, 100, './second_1k.pth', DRY_RUN)
     test_model(my_model, 300)
-    my_model = train_model("third_1k", 1000, 100, 'second_1k.pth')
+    my_model = train_model("fourth_1k", 1000, 100, './third_1k.pth', DRY_RUN)
     test_model(my_model, 300)
-    my_model = train_model("fourth_1k", 1000, 100, 'third_1k.pth')
+    my_model = train_model("fifth_1k", 1000, 100, './fourth_1k.pth', DRY_RUN)
     test_model(my_model, 300)
-    my_model = train_model("fifth_1k", 1000, 100, 'fourth_1k.pth') 
-    test_model(my_model, 300)
+
+    # for i in range (5):
+    #     my_model = train_model("temp", 1000, 100, './third_1k.pth', DRY_RUN)
+    #     test_model('first_1k.pth', 300)
