@@ -37,7 +37,7 @@ learning_rate = 3e-4
 n_embd = 384
 n_head = 12
 n_layer = 6
-dropout = 0.2
+dropout_rate = 0.2
 # ------------
 
 torch.manual_seed(1337)
@@ -112,9 +112,10 @@ class Head(nn.Module):
         self.key   = nn.Linear(n_embd, head_size, bias=False)
         self.query = nn.Linear(n_embd, head_size, bias=False)
         self.value = nn.Linear(n_embd, head_size, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size))) # 模型中注册一个张量（buffer）。这个函数通常用于那些不是模型参数但在模型中需要使用的张量。这些张量不会在模型训练过程中更新，但它们对于模型的正向传播或反向传播是必需的。
+        # 模型中注册一个张量（buffer）, mask。这个函数通常用于那些不是模型参数但在模型中需要使用的张量。这些张量不会在模型训练过程中更新，但它们对于模型的正向传播或反向传播是必需的。
+        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size))) 
 
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
         # input of size (batch, time-step, channels)
@@ -139,11 +140,13 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(head_size * num_heads, n_embd)
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
-        out = torch.cat([h(x) for h in self.heads], dim=-1)
-        out = self.dropout(self.proj(out))
+        # torch.cat将这些张量收集到一个列表中，并沿着指定的维度dim进行拼接。dim=-1表示沿着each head out最后一个维度(hs)进行拼接。
+        # 最终得到的out形状将是(batch_size, time-stamp * hs)。
+        out = torch.cat([head(x) for head in self.heads], dim=-1)
+        out = self.dropout(self.proj(out)) # pass out through self.proj
         return out
 
 class FeedFoward(nn.Module):
@@ -155,7 +158,7 @@ class FeedFoward(nn.Module):
             nn.Linear(n_embd, 4 * n_embd),
             nn.ReLU(),
             nn.Linear(4 * n_embd, n_embd),
-            nn.Dropout(dropout),
+            nn.Dropout(dropout_rate),
         )
 
     def forward(self, x):
@@ -190,9 +193,11 @@ class GPTLanguageModel(nn.Module):
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
-        self.apply(self._init_weights)
+
+        self.apply(self._init_weights) # 递归地对每个子模块init
 
     def _init_weights(self, module):
+        """apply,执行初始化权重"""
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
             if module.bias is not None:
@@ -204,9 +209,9 @@ class GPTLanguageModel(nn.Module):
         B, T = idx.shape
 
         # idx and targets are both (B,T) tensor of integers
-        tok_emb = self.token_embedding_table(idx) # (B,T,C)
+        tok_emb = self.token_embedding_table(idx) # (B,T,C) #batch, time(contex_size), Channel(embedding vector size) 
         pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T,C)
-        x = tok_emb + pos_emb # (B,T,C) #position embedding
+        x = tok_emb + pos_emb # (B,T,C) #position embedding, pos_emb 的第一个维度（时间步维度）大小为 T，而 tok_emb 的第一个维度大小为 B。由于 pos_emb 的批次维度大小为1，它将被复制 B 次，以形成 (B, T, C) 形状的张量。
         x = self.blocks(x) # (B,T,C)
         x = self.ln_f(x) # (B,T,C)
         logits = self.lm_head(x) # (B,T,vocab_size)
