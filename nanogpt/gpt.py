@@ -388,8 +388,9 @@ if __name__ == "__main__":
     model_name_list = ['first','second','third','fourth','fifth']
     iter_list       = [100,    100,    100,   100,   100]
 
-    for n in range(len(model_name_list)):
+    # torch.cuda.memory._record_memory_history()
 
+    for n in range(len(model_name_list)):
 
         if n == 0:
             load_name = None
@@ -403,4 +404,6 @@ if __name__ == "__main__":
         train_model(iter_list[n], print_iter, load_name, save_name,  DRY_RUN)
 
         test_model(save_name, iter_list[n], 300)
+
+    # torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
 
