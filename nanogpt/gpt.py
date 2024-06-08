@@ -62,32 +62,47 @@ train_data = data[:n]
 val_data = data[n:]
 
 # data loading
-def get_batch(split):
+def get_batch(split, dev):
     # generate a small batch of data of inputs x and targets y
     data = train_data if split == 'train' else val_data
     ix = torch.randint(len(data) - block_size, (batch_size,))
     x = torch.stack([data[i:i+block_size] for i in ix])
     y = torch.stack([data[i+1:i+block_size+1] for i in ix])
-    x, y = x.to(device), y.to(device)
+    x, y = x.to(dev), y.to(dev)
     return x, y
 
-@torch.no_grad()  
+eval_iters = 200
 # @torch.no_grad() 装饰器下所有计算都不会跟踪梯度，不会进行任何梯度更新。这在评估模型或进行不涉及反向传播的计算时非常有用，
 # 因为它可以减少内存消耗并提高计算速度。在做模型推理时候用。
-def estimate_loss(model):
-    eval_iters = 200
+@torch.no_grad()  
+def estimate_losses(model, dev): # test loss on both train and eval dataset
+    # eval_iters = 200
     out = {}
     model.eval()
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
-            X, Y = get_batch(split)
+            X, Y = get_batch(split, dev)
             logits, loss = model(X, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
     return out
 
+
+@torch.no_grad()  
+def eval_loss(model, dev): # test loss on eval dataset
+    # eval_iters = 200
+    model.eval()
+
+    losses = torch.zeros(eval_iters)
+    for k in range(eval_iters):
+        X, Y = get_batch('eval', dev)
+        _, loss = model(X, Y)
+        losses[k] = loss.item()
+
+    model.train()
+    return losses.mean()
 
 class MyModel(nn.Module):
     def __init__(self):
@@ -183,7 +198,7 @@ class Block(nn.Module):
 
 class GPTLanguageModel(nn.Module):
 
-    def __init__(self):
+    def __init__(self, dev):
         super().__init__()
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
@@ -191,6 +206,7 @@ class GPTLanguageModel(nn.Module):
         self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd) # final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
+        self.dev = dev
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
 
@@ -210,7 +226,7 @@ class GPTLanguageModel(nn.Module):
 
         # idx and targets are both (B,T) tensor of integers
         tok_emb = self.token_embedding_table(idx) # (B,T,C) #batch, time(contex_size), Channel(embedding vector size) 
-        pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T,C)
+        pos_emb = self.position_embedding_table(torch.arange(T, device=self.dev)) # (T,C)
         x = tok_emb + pos_emb # (B,T,C) #position embedding, pos_emb 的第一个维度（时间步维度）大小为 T，而 tok_emb 的第一个维度大小为 B。由于 pos_emb 的批次维度大小为1，它将被复制 B 次，以形成 (B, T, C) 形状的张量。
         x = self.blocks(x) # (B,T,C)
         x = self.ln_f(x) # (B,T,C)
@@ -260,16 +276,17 @@ def load_pretrained_model(model:nn.Module, pre_train_model: str, post_load_actio
         model.eval()  
     return model
 
-def create_model(model_path: str= None, mode: str = 'train'):
+def create_model(dev, model_path: str= None, mode: str = 'train'):
     
-    model = GPTLanguageModel()
+    model = GPTLanguageModel(dev)
     # model = MyModel()
 
     if model_path == None:
         print("init model from random...")
     else:
-
         model = load_pretrained_model(model, model_path, mode)
+
+    model = model.to(device)
 
     return model
 
@@ -284,6 +301,7 @@ def make_path(root_path_name: str, name:str, suffix: int, type:str='mdl'):
     return os.path.join(current_path, f_name)
 
 
+from torchviz import make_dot # for model visualize
 
 @timing
 def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, dry_run: bool = False):
@@ -303,7 +321,7 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
         model_save_path = None
         opt_save_path   = None
 
-    m = create_model(model_load_path, 'train').to(device)
+    m = create_model(device, model_load_path, 'train')
 
     # print the number of parameters in the model
     print(f"load model with {sum(p.numel() for p in m.parameters())/1e6} M parameters")
@@ -325,20 +343,27 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
         if dry_run:
             print(f"dry_run : exist after before iter: {iter}")
             break
+       
+        # sample a batch of data
+        xb, yb = get_batch('train', device)
+        # xb, yb = xb.to(device), yb.to(device)
     
+        # train loss
+        logits, train_loss = m(xb, yb)
+
         # every once in a while evaluate the loss on train and val sets
         if iter % eval_interval == 0 or iter == iter - 1:
-            losses = estimate_loss(m)
-            print(f"[step {iter:<6}]: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-    
-        # sample a batch of data
-        xb, yb = get_batch('train')
-        xb, yb = xb.to(device), yb.to(device)
-    
-        # evaluate the loss
-        logits, loss = m(xb, yb)
+            # losses = estimate_losses(m, device)
+            # print(f"[step {iter:<6}]: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            eval_loss = eval_loss(m, device)
+            print(f"[step {iter:<6}]: train loss {train_loss:.4f}, eval loss {eval_loss:.4f}")
+
+        if i == 1 :
+            make_dot(train_loss, params=dict(list(m.named_parameters()))).render("model_torchviz", format="png")
+            print('saving net structure')
+
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
+        train_loss.backward()
         if i % accumulation_steps == 0:
             optimizer.step()
         # optimizer.step()
@@ -364,7 +389,7 @@ def test_model(save_name: str, sufix:int, max_token: int =300):
     print(f"test model")
     pre_train_path = make_path(None, save_name, sufix, 'mdl' )
 
-    m = create_model(pre_train_path, 'eval').to(device)
+    m = create_model(device, pre_train_path, 'eval')
 
     # generate from the model
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
@@ -376,14 +401,24 @@ def test_model(save_name: str, sufix:int, max_token: int =300):
     print("\n")
 
 
+def visualize():
+    m = create_model(device, None, 'train')
+    xb, yb = get_batch('eval', device)
+    _, loss = m(xb, yb)
+    make_dot(loss, params=dict(list(m.named_parameters()))).render("model_torchviz", format="png")
+
 if __name__ == "__main__":
     # 检查是否有足够的参数
-    if len(sys.argv) == 2:
+    if len(sys.argv) == 3:
         print_iter = int(sys.argv[1])
+        dry_run = sys.argv[2]
+
     else:
         print("没有提供合适命令行参数。")
 
-    DRY_RUN = False
+    DRY_RUN = True if dry_run == 'yes' else False
+
+    # visualize()
     
     model_name_list = ['first','second','third','fourth','fifth']
     iter_list       = [100,    100,    100,   100,   100]
