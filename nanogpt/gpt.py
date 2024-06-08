@@ -355,8 +355,8 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
         if iter % eval_interval == 0 or iter == iter - 1:
             # losses = estimate_losses(m, device)
             # print(f"[step {iter:<6}]: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-            eval_loss = eval_loss(m, device)
-            print(f"[step {iter:<6}]: train loss {train_loss:.4f}, eval loss {eval_loss:.4f}")
+            evl_loss = eval_loss(m, device)
+            print(f"[step {iter:<6}]: train loss {train_loss:.4f}, eval loss {evl_loss:.4f}")
 
         if i == 1 :
             make_dot(train_loss, params=dict(list(m.named_parameters()))).render("model_torchviz", format="png")
