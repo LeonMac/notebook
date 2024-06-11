@@ -26,19 +26,29 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 def gpu_avlailabe() -> bool :
     return torch.cuda.is_available()
 
-batch_size = 128 # how many independent sequences will we process in parallel?
-block_size = 256 # what is the maximum context length for predictions?
+BIG = False # Bigg Model or small Model
 
 # max_iters = 5000
 # eval_interval = 500
 # eval_iters = 200
-
 learning_rate = 3e-4
-n_embd = 384
-n_head = 12
-n_layer = 6
+
+if BIG: # for GPU like 3090
+    batch_size = 128 # how many independent sequences will we process in parallel?
+    block_size = 256 # what is the maximum context length for predictions?
+
+    n_embd = 384
+    n_head = 12
+    n_layer = 6
+else: # for GPU like 1080
+    batch_size = 32 # how many independent sequences will we process in parallel?
+    block_size = 64 # what is the maximum context length for predictions?
+
+    n_embd = 64 # number of embedding
+    n_head = 2  # head number
+    n_layer = 4  # number of layer
+
 dropout_rate = 0.2
-# ------------
 
 torch.manual_seed(1337)
 
@@ -61,13 +71,15 @@ n = int(0.9*len(data)) # first 90% will be train, rest val
 train_data = data[:n]
 val_data = data[n:]
 
+# dataset_type = ['train','eval']
 # data loading
 def get_batch(split, dev):
     # generate a small batch of data of inputs x and targets y
     data = train_data if split == 'train' else val_data
+
     ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([data[i:i+block_size] for i in ix])
-    y = torch.stack([data[i+1:i+block_size+1] for i in ix])
+    x  = torch.stack([data[i:i+block_size] for i in ix])
+    y  = torch.stack([data[i+1:i+block_size+1] for i in ix])
     x, y = x.to(dev), y.to(dev)
     return x, y
 
@@ -75,33 +87,33 @@ eval_iters = 200
 # @torch.no_grad() 装饰器下所有计算都不会跟踪梯度，不会进行任何梯度更新。这在评估模型或进行不涉及反向传播的计算时非常有用，
 # 因为它可以减少内存消耗并提高计算速度。在做模型推理时候用。
 @torch.no_grad()  
-def estimate_losses(model, dev): # test loss on both train and eval dataset
+def estimate_losses(mdl, dev): # test loss on both train and eval dataset
     # eval_iters = 200
     out = {}
-    model.eval()
+    mdl.eval()
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             X, Y = get_batch(split, dev)
-            logits, loss = model(X, Y)
+            logits, loss = mdl(X, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
-    model.train()
+    # mdl.train()
     return out
 
 
 @torch.no_grad()  
-def eval_loss(model, dev): # test loss on eval dataset
+def eval_loss(mdl, dev): # test loss on eval dataset
     # eval_iters = 200
-    model.eval()
+    mdl.eval()
 
     losses = torch.zeros(eval_iters)
     for k in range(eval_iters):
         X, Y = get_batch('eval', dev)
-        _, loss = model(X, Y)
+        _, loss = mdl(X, Y)
         losses[k] = loss.item()
 
-    model.train()
+    # mdl.train()
     return losses.mean()
 
 class MyModel(nn.Module):
@@ -260,35 +272,35 @@ class GPTLanguageModel(nn.Module):
         return idx
     
 
-def load_pretrained_model(model:nn.Module, pre_train_model: str, post_load_action: str= 'train'):
+def load_pretrained_model(mdl:nn.Module, pre_train_model: str, post_load_action: str= 'train'):
 
     # if not isinstance(pre_train_model, str):
     #     raise ValueError(f"pre_train_model{pre_train_model} must be a string representing a file path")
 
     try:
-        model.load_state_dict(torch.load(pre_train_model))
+        mdl.load_state_dict(torch.load(pre_train_model))
     except Exception as e:
         print(f"load_state_dict: {pre_train_model}, error: {e}")
 
     if post_load_action == 'train':
-        model.train()  
+        mdl.train()  
     elif post_load_action == 'eval':
-        model.eval()  
-    return model
+        mdl.eval()  
+    return mdl
 
 def create_model(dev, model_path: str= None, mode: str = 'train'):
     
-    model = GPTLanguageModel(dev)
-    # model = MyModel()
+    mdl = GPTLanguageModel(dev)
+    # mdl = MyModel()
 
     if model_path == None:
         print("init model from random...")
     else:
-        model = load_pretrained_model(model, model_path, mode)
+        mdl = load_pretrained_model(mdl, model_path, mode)
 
-    model = model.to(device)
+    mdl = mdl.to(dev)
 
-    return model
+    return mdl
 
 def make_path(root_path_name: str, name:str, suffix: int, type:str='mdl'):
     if root_path_name == None:
@@ -321,13 +333,13 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
         model_save_path = None
         opt_save_path   = None
 
-    m = create_model(device, model_load_path, 'train')
+    mdl = create_model(device, model_load_path, 'train')
 
     # print the number of parameters in the model
-    print(f"load model with {sum(p.numel() for p in m.parameters())/1e6} M parameters")
+    print(f"load model with {sum(p.numel() for p in mdl.parameters())/1e6} M parameters")
     
     # create a PyTorch optimizer
-    optimizer = torch.optim.AdamW(m.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(mdl.parameters(), lr=learning_rate)
     if opt_load_path != None:
         optimizer.load_state_dict(torch.load(opt_load_path, map_location=device))
 
@@ -349,18 +361,18 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
         # xb, yb = xb.to(device), yb.to(device)
     
         # train loss
-        logits, train_loss = m(xb, yb)
+        logits, train_loss = mdl(xb, yb)
 
         # every once in a while evaluate the loss on train and val sets
         if iter % eval_interval == 0 or iter == iter - 1:
             # losses = estimate_losses(m, device)
             # print(f"[step {iter:<6}]: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-            evl_loss = eval_loss(m, device)
+            evl_loss = eval_loss(mdl, device)
             print(f"[step {iter:<6}]: train loss {train_loss:.4f}, eval loss {evl_loss:.4f}")
 
-        if i == 1 :
-            make_dot(train_loss, params=dict(list(m.named_parameters()))).render("model_torchviz", format="png")
-            print('saving net structure')
+        # if i == 1 :
+        #     make_dot(train_loss, params=dict(list(mdl.named_parameters()))).render("model_torchviz", format="png")
+        #     print('saving net structure')
 
         optimizer.zero_grad(set_to_none=True)
         train_loss.backward()
@@ -379,7 +391,7 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
    
     # opt_save = f"{save_name}_opt_{iter}.pth"
     print(f"model train completed, model will be saved as {model_save_path}, optimizer is saved as {opt_save_path}")
-    torch.save(m.state_dict(), model_save_path)
+    torch.save(mdl.state_dict(), model_save_path)
     torch.save(optimizer.state_dict(), opt_save_path)
 
     # return m
@@ -401,11 +413,13 @@ def test_model(save_name: str, sufix:int, max_token: int =300):
     print("\n")
 
 
-def visualize():
+def visualize(save_name:str):
     m = create_model(device, None, 'train')
-    xb, yb = get_batch('eval', device)
+    xb, yb = get_batch('train', device)
     _, loss = m(xb, yb)
-    make_dot(loss, params=dict(list(m.named_parameters()))).render("model_torchviz", format="png")
+    save_format = 'png'
+    print(f'saving net structure to {save_name}.{save_format}')
+    make_dot(loss, params=dict(list(m.named_parameters()))).render(save_name, format=save_format)
 
 if __name__ == "__main__":
     # 检查是否有足够的参数
@@ -418,7 +432,8 @@ if __name__ == "__main__":
 
     DRY_RUN = True if dry_run == 'yes' else False
 
-    # visualize()
+    if DRY_RUN:
+        visualize('save_net')
     
     model_name_list = ['first','second','third','fourth','fifth']
     iter_list       = [100,    100,    100,   100,   100]
