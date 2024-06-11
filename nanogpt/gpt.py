@@ -85,7 +85,8 @@ with open('input.txt', 'r', encoding='utf-8') as f:
 
 # here are all the unique characters that occur in this text
 chars = sorted(list(set(text)))
-vocab_size = len(chars)
+global vocab_size; vocab_size = len(chars)
+
 # create a mapping from characters to integers
 stoi = { ch:i for i,ch in enumerate(chars) }
 itos = { i:ch for i,ch in enumerate(chars) }
@@ -143,19 +144,43 @@ def eval_loss(mdl, dev): # test loss on eval dataset
     # mdl.train()
     return losses.mean()
 
-class MyModel(nn.Module):
-    def __init__(self):
+# super simple bigram model
+class SimpleLLM(nn.Module):
+    def __init__(self, vocab_size):
         super().__init__()
-        self.layer1=nn.Linear(10,4) 
-        self.act1=nn.Sigmoid()
-  
-    def forward(self,x):
-        x=self.layer1(x)
-        x=self.act1(x)
-        return x
-        
+        # each token directly reads off the logits for the next token from a lookup table
+        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+
+    def forward(self, idx, targets=None):
+
+        # idx and targets are both (B,T) tensor of integers
+        logits = self.token_embedding_table(idx) # (B,T,C)
+
+        if targets is None:
+            loss = None
+        else:
+            B, T, C = logits.shape
+            logits = logits.view(B*T, C)
+            targets = targets.view(B*T)
+            loss = F.cross_entropy(logits, targets)
+
+        return logits, loss
+
     def generate(self, idx, max_new_tokens):
-        pass
+        # idx is (B, T) array of indices in the current context
+        for _ in range(max_new_tokens):
+            # get the predictions
+            logits, loss = self(idx)
+            # focus only on the last time step
+            logits = logits[:, -1, :] # becomes (B, C)
+            # apply softmax to get probabilities
+            probs = F.softmax(logits, dim=-1) # (B, C)
+            # sample from the distribution
+            idx_next = torch.multinomial(probs, num_samples=1) # (B, 1)
+            # append sampled index to the running sequence
+            idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)
+        return idx
+
 
 ## -----------------------------
 
@@ -318,7 +343,7 @@ def load_pretrained_model(mdl:nn.Module, pre_train_model: str, post_load_action:
 def create_model(dev, model_path: str= None, mode: str = 'train'):
     
     mdl = GPTLanguageModel(dev)
-    # mdl = MyModel()
+    # mdl = SimpleLLM(vocab_size)
 
     if model_path == None:
         print("init model from random...")
@@ -478,13 +503,15 @@ if __name__ == "__main__":
     if len(sys.argv) == 4:
         print_iter = int(sys.argv[1])
         dry_run = sys.argv[2]
-        big_gpu = sys.argv[3]
+        complex_model = sys.argv[3]
 
     else:
         print("没有提供足够合适命令行参数。")
 
     DRY_RUN = True if dry_run == 'yes' else False
-    BIG     = True if big_gpu == 'big' else False
+    BIG     = True if complex_model == 'big' else False
+
+    # if complex_model
 
     global_cofig(BIG)
 
