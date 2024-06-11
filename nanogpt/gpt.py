@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import torch.cuda as tc
 
 from decimal import Decimal
 import timeit
@@ -20,35 +21,61 @@ def timing(func):
         return result, d_str
     return get_timing
 
-# hyperparameters
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
 def gpu_avlailabe() -> bool :
-    return torch.cuda.is_available()
+    return tc.is_available()
 
-BIG = False # Bigg Model or small Model
+def memory_info(claim:str ):
+    print(claim)
+    print(f"allocated {tc.memory_allocated(device=None)}, max {tc.max_memory_allocated(device=None)}")
+    print(f"reserved  {tc.memory_reserved(device=None)}, max {tc.max_memory_reserved(device=None)} ")
+
+global prj_path;            prj_path  = os.getcwd()
+global model_save_dir;      model_save_dir = 'model_save'
+global model_arch_dir;      model_arch_dir = 'model_arch'
+
+# hyperparameters
+global device; device = 'cuda' if tc.is_available() else 'cpu'
+
+global dropout_rate;  dropout_rate = 0.2
+global learning_rate; learning_rate = 3e-4
 
 # max_iters = 5000
 # eval_interval = 500
 # eval_iters = 200
-learning_rate = 3e-4
 
-if BIG: # for GPU like 3090
-    batch_size = 128 # how many independent sequences will we process in parallel?
-    block_size = 256 # what is the maximum context length for predictions?
 
-    n_embd = 384
-    n_head = 12
-    n_layer = 6
-else: # for GPU like 1080
-    batch_size = 32 # how many independent sequences will we process in parallel?
-    block_size = 64 # what is the maximum context length for predictions?
+def global_cofig(big:bool= True):
+    global batch_size # how many independent sequences will we process in parallel?
+    global block_size # what is the maximum context length for predictions?
 
-    n_embd = 64 # number of embedding
-    n_head = 2  # head number
-    n_layer = 4  # number of layer
+    global n_embd  # number of embedding
+    global n_head  # number of head
+    global n_layer # number of layer
+    global save_nn_name
+    gpu = 'big'
 
-dropout_rate = 0.2
+    if big: # for GPU like 3090
+        
+        batch_size = 128 # how many independent sequences will we process in parallel?
+        block_size = 256 # what is the maximum context length for predictions?
+
+        n_embd  = 384
+        n_head  = 8
+        n_layer = 6
+
+    else: # for GPU like 1080
+        batch_size = 32 # how many independent sequences will we process in parallel?
+        block_size = 64 # what is the maximum context length for predictions?
+
+        n_embd  = 64  # number of embedding
+        n_head  = 1   # head number
+        n_layer = 1   # number of layer
+
+        gpu = 'small'
+    
+    save_nn_name=f"batch{batch_size}-block{block_size}-embd{n_embd}-head{n_head}-layer{n_layer}"
+    print(f"global config for {gpu} GPU") 
+
 
 torch.manual_seed(1337)
 
@@ -304,16 +331,14 @@ def create_model(dev, model_path: str= None, mode: str = 'train'):
 
 def make_path(root_path_name: str, name:str, suffix: int, type:str='mdl'):
     if root_path_name == None:
-        current_path = os.getcwd()
+        current_path = prj_path
     else:
         current_path = root_path_name
 
     f_name = f"{name}_{type}_{suffix}.pth"
 
-    return os.path.join(current_path, f_name)
+    return os.path.join(current_path, model_save_dir, f_name)
 
-
-from torchviz import make_dot # for model visualize
 
 @timing
 def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, dry_run: bool = False):
@@ -337,7 +362,7 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
 
     # print the number of parameters in the model
     print(f"load model with {sum(p.numel() for p in mdl.parameters())/1e6} M parameters")
-    
+
     # create a PyTorch optimizer
     optimizer = torch.optim.AdamW(mdl.parameters(), lr=learning_rate)
     if opt_load_path != None:
@@ -355,7 +380,8 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
         if dry_run:
             print(f"dry_run : exist after before iter: {iter}")
             break
-       
+        
+        # memory_info(f"iter [{iter}] before train:")
         # sample a batch of data
         xb, yb = get_batch('train', device)
         # xb, yb = xb.to(device), yb.to(device)
@@ -369,6 +395,7 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
             # print(f"[step {iter:<6}]: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
             evl_loss = eval_loss(mdl, device)
             print(f"[step {iter:<6}]: train loss {train_loss:.4f}, eval loss {evl_loss:.4f}")
+            # memory_info(f"")
 
         # if i == 1 :
         #     make_dot(train_loss, params=dict(list(mdl.named_parameters()))).render("model_torchviz", format="png")
@@ -382,7 +409,10 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
         i+=1
         
         if gpu_avlailabe():
-            torch.cuda.empty_cache()
+            tc.empty_cache()
+
+        tc.reset_peak_memory_stats(device=None)
+        # memory_info(f"iter [{iter}] after train:")
 
     # save_data = {
     # "model_state": m.state_dict(),
@@ -395,6 +425,10 @@ def train_model(max_iter:int, eval_interval:int, load_name:str, save_name: str, 
     torch.save(optimizer.state_dict(), opt_save_path)
 
     # return m
+    # del mdl
+    # del optimizer
+    # del xb
+    # del yb
 
 
 def test_model(save_name: str, sufix:int, max_token: int =300):
@@ -413,32 +447,56 @@ def test_model(save_name: str, sufix:int, max_token: int =300):
     print("\n")
 
 
-def visualize(save_name:str):
+def _gen_data_model_for_visualize():
     m = create_model(device, None, 'train')
     xb, yb = get_batch('train', device)
+    return m, xb, yb
+
+def visualize_torchviz(save_name:str):
+    from torchviz import make_dot # for model visualize
+
+    m, xb, yb = _gen_data_model_for_visualize()
     _, loss = m(xb, yb)
     save_format = 'png'
     print(f'saving net structure to {save_name}.{save_format}')
     make_dot(loss, params=dict(list(m.named_parameters()))).render(save_name, format=save_format)
 
+def visualize_netron(save_name:str):
+    # import onnx
+    save_file = f"{save_name}.onnx"
+    print(f'saving net structure to {save_file}')
+    m, xb, yb = _gen_data_model_for_visualize()
+    onnx_program = torch.onnx.export(m, (xb, yb), save_file)
+    # onnx_program.save(save_file)
+
+# def visualize_hl(hl:str):
+#     import hiddenlayer as hl
+
+
 if __name__ == "__main__":
     # 检查是否有足够的参数
-    if len(sys.argv) == 3:
+    if len(sys.argv) == 4:
         print_iter = int(sys.argv[1])
         dry_run = sys.argv[2]
+        big_gpu = sys.argv[3]
 
     else:
-        print("没有提供合适命令行参数。")
+        print("没有提供足够合适命令行参数。")
 
     DRY_RUN = True if dry_run == 'yes' else False
+    BIG     = True if big_gpu == 'big' else False
+
+    global_cofig(BIG)
 
     if DRY_RUN:
-        visualize('save_net')
+        nn_save_path = os.path.join(prj_path, model_arch_dir, save_nn_name)
+        visualize_torchviz(nn_save_path)
+        visualize_netron(nn_save_path)
     
     model_name_list = ['first','second','third','fourth','fifth']
     iter_list       = [100,    100,    100,   100,   100]
 
-    # torch.cuda.memory._record_memory_history()
+    # tc.memory._record_memory_history()
 
     for n in range(len(model_name_list)):
 
@@ -455,5 +513,6 @@ if __name__ == "__main__":
 
         test_model(save_name, iter_list[n], 300)
 
-    # torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
+    # tc.memory._dump_snapshot("my_snapshot.pickle")
+
 
