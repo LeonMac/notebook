@@ -6,7 +6,8 @@ import torch.cuda as tc
 from decimal import Decimal
 import timeit
 import os
-import sys
+
+
 
 ## timing decorator
 def timing(func):
@@ -471,75 +472,9 @@ def test_model(save_name: str, sufix:int, max_token: int =300):
     print("="*30)
     print("\n")
 
-
-def _gen_data_model_for_visualize():
+def gen_data_model_for_visualize():
     m = create_model(device, None, 'train')
     xb, yb = get_batch('train', device)
     return m, xb, yb
-
-def visualize_torchviz(save_name:str):
-    from torchviz import make_dot # for model visualize
-
-    m, xb, yb = _gen_data_model_for_visualize()
-    _, loss = m(xb, yb)
-    save_format = 'png'
-    print(f'saving net structure to {save_name}.{save_format}')
-    make_dot(loss, params=dict(list(m.named_parameters()))).render(save_name, format=save_format)
-
-def visualize_netron(save_name:str):
-    # import onnx
-    save_file = f"{save_name}.onnx"
-    print(f'saving net structure to {save_file}')
-    m, xb, yb = _gen_data_model_for_visualize()
-    onnx_program = torch.onnx.export(m, (xb, yb), save_file)
-    # onnx_program.save(save_file)
-
-# def visualize_hl(hl:str):
-#     import hiddenlayer as hl
-
-
-if __name__ == "__main__":
-    # 检查是否有足够的参数
-    if len(sys.argv) == 4:
-        print_iter = int(sys.argv[1])
-        dry_run = sys.argv[2]
-        complex_model = sys.argv[3]
-
-    else:
-        print("没有提供足够合适命令行参数。")
-
-    DRY_RUN = True if dry_run == 'yes' else False
-    BIG     = True if complex_model == 'big' else False
-
-    # if complex_model
-
-    global_cofig(BIG)
-
-    if DRY_RUN:
-        nn_save_path = os.path.join(prj_path, model_arch_dir, save_nn_name)
-        visualize_torchviz(nn_save_path)
-        visualize_netron(nn_save_path)
-    
-    model_name_list = ['first','second','third','fourth','fifth']
-    iter_list       = [100,    100,    100,   100,   100]
-
-    # tc.memory._record_memory_history()
-
-    for n in range(len(model_name_list)):
-
-        if n == 0:
-            load_name = None
-        else:
-            load_name = model_name_list[n-1]
-
-        save_name = model_name_list[n]
-
-        # print(f"n={n}, load_name = {load_name}, save_name={save_name}")
-
-        train_model(iter_list[n], print_iter, load_name, save_name,  DRY_RUN)
-
-        test_model(save_name, iter_list[n], 300)
-
-    # tc.memory._dump_snapshot("my_snapshot.pickle")
 
 
