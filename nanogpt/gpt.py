@@ -8,7 +8,6 @@ import timeit
 import os
 
 
-
 ## timing decorator
 def timing(func):
     """decoration for timing calculation"""
@@ -36,7 +35,6 @@ global model_arch_dir;      model_arch_dir = 'model_arch'
 
 # hyperparameters
 global device; device = 'cuda' if tc.is_available() else 'cpu'
-
 global dropout_rate;  dropout_rate = 0.2
 global learning_rate; learning_rate = 3e-4
 
@@ -46,36 +44,37 @@ global learning_rate; learning_rate = 3e-4
 
 
 def global_cofig(big:bool= True):
-    global batch_size # how many independent sequences will we process in parallel?
-    global block_size # what is the maximum context length for predictions?
+    global g_batch_size # how many independent sequences will we process in parallel?
+    global g_block_size # what is the maximum context length for predictions?
 
-    global n_embd  # number of embedding
-    global n_head  # number of head
-    global n_layer # number of layer
+    global g_n_embd  # number of embedding
+    global g_n_head  # number of head
+    global g_n_layer # number of layer
     global save_nn_name
     gpu = 'big'
 
     if big: # for GPU like 3090
         
-        batch_size = 128 # how many independent sequences will we process in parallel?
-        block_size = 256 # what is the maximum context length for predictions?
+        g_batch_size = 128 # how many independent sequences will we process in parallel?
+        g_block_size = 256 # what is the maximum context length for predictions?
 
-        n_embd  = 384
-        n_head  = 8
-        n_layer = 6
+        g_n_embd  = 384
+        g_n_head  = 8
+        g_n_layer = 6
 
     else: # for GPU like 1080
-        batch_size = 32 # how many independent sequences will we process in parallel?
-        block_size = 64 # what is the maximum context length for predictions?
+        g_batch_size = 32 # how many independent sequences will we process in parallel?
+        g_block_size = 64 # what is the maximum context length for predictions?
 
-        n_embd  = 64  # number of embedding
-        n_head  = 1   # head number
-        n_layer = 1   # number of layer
+        g_n_embd  = 64  # number of embedding
+        g_n_head  = 1   # head number
+        g_n_layer = 1   # number of layer
 
         gpu = 'small'
     
-    save_nn_name=f"batch{batch_size}-block{block_size}-embd{n_embd}-head{n_head}-layer{n_layer}"
+    save_nn_name=f"batch{g_batch_size}-block{g_block_size}-embd{g_n_embd}-head{g_n_head}-layer{g_n_layer}"
     print(f"global config for {gpu} GPU") 
+
 
 
 torch.manual_seed(1337)
@@ -86,7 +85,7 @@ with open('input.txt', 'r', encoding='utf-8') as f:
 
 # here are all the unique characters that occur in this text
 chars = sorted(list(set(text)))
-global vocab_size; vocab_size = len(chars)
+global g_vocab_size; g_vocab_size = len(chars)
 
 # create a mapping from characters to integers
 stoi = { ch:i for i,ch in enumerate(chars) }
@@ -106,9 +105,9 @@ def get_batch(split, dev):
     # generate a small batch of data of inputs x and targets y
     data = train_data if split == 'train' else val_data
 
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    x  = torch.stack([data[i:i+block_size] for i in ix])
-    y  = torch.stack([data[i+1:i+block_size+1] for i in ix])
+    ix = torch.randint(len(data) - g_block_size, (g_batch_size,))
+    x  = torch.stack([data[i:i+g_block_size] for i in ix])
+    y  = torch.stack([data[i+1:i+g_block_size+1] for i in ix])
     x, y = x.to(dev), y.to(dev)
     return x, y
 
@@ -189,11 +188,11 @@ class Head(nn.Module):
     """ one head of self-attention """
     def __init__(self, head_size):
         super().__init__()
-        self.key   = nn.Linear(n_embd, head_size, bias=False)
-        self.query = nn.Linear(n_embd, head_size, bias=False)
-        self.value = nn.Linear(n_embd, head_size, bias=False)
-        # 模型中注册一个张量（buffer）, mask。这个函数通常用于那些不是模型参数但在模型中需要使用的张量。这些张量不会在模型训练过程中更新，但它们对于模型的正向传播或反向传播是必需的。
-        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size))) 
+        self.key   = nn.Linear(g_n_embd, head_size, bias=False)  # g_n_embd: input token dimension; head_size: final output dimension of each head.
+        self.query = nn.Linear(g_n_embd, head_size, bias=False)
+        self.value = nn.Linear(g_n_embd, head_size, bias=False)
+        # register_buffer: 模型中注册一个张量（buffer）, mask。这个函数通常用于那些不是模型参数但在模型中需要使用的张量。这些张量不会在模型训练过程中更新，但它们对于模型的正向传播或反向传播是必需的。
+        self.register_buffer('tril', torch.tril(torch.ones(g_block_size, g_block_size))) 
 
         self.dropout = nn.Dropout(dropout_rate)
 
@@ -218,8 +217,8 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(self, num_heads, head_size):
         super().__init__()
-        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
-        self.proj = nn.Linear(head_size * num_heads, n_embd)
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])  # we get num_heads of head, each head provides head_size output dimension, all heads together provide num_heads*head_size output
+        self.proj  = nn.Linear(head_size * num_heads, g_n_embd)
         self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
@@ -250,15 +249,17 @@ class Block(nn.Module):
     def __init__(self, n_embd, n_head):
         # n_embd: embedding dimension, n_head: the number of heads we'd like
         super().__init__()
-        head_size = n_embd // n_head
+        head_size = n_embd // n_head # why do this?? this overide the global head_size parameter??
         self.sa = MultiHeadAttention(n_head, head_size)
         self.ffwd = FeedFoward(n_embd)
         self.ln1 = nn.LayerNorm(n_embd)
         self.ln2 = nn.LayerNorm(n_embd)
 
     def forward(self, x):
-        x = x + self.sa(self.ln1(x))
-        x = x + self.ffwd(self.ln2(x))
+        # simply making the Residual Connection foth both multi-head and also feedfoward
+        # do normalization before the multihead, residual add after the multihead -- this is something different from the original paper "AiAYN", 
+        x = x + self.sa(self.ln1(x))   #1.do layer normalization; 2.go through multihead; 3. add residual
+        x = x + self.ffwd(self.ln2(x)) #1. do layer normalization; 2.go through ff; 3. add residual
         return x
 
 class GPTLanguageModel(nn.Module):
@@ -266,11 +267,11 @@ class GPTLanguageModel(nn.Module):
     def __init__(self, dev):
         super().__init__()
         # each token directly reads off the logits for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
-        self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)])
-        self.ln_f = nn.LayerNorm(n_embd) # final layer norm
-        self.lm_head = nn.Linear(n_embd, vocab_size)
+        self.token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd)
+        self.position_embedding_table = nn.Embedding(g_block_size, g_n_embd)
+        self.blocks = nn.Sequential(*[Block(g_n_embd, n_head=g_n_head) for _ in range(g_n_layer)])
+        self.ln_f = nn.LayerNorm(g_n_embd) # final layer normalization after all blocks
+        self.lm_head = nn.Linear(g_n_embd, g_vocab_size)
         self.dev = dev
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
@@ -311,7 +312,7 @@ class GPTLanguageModel(nn.Module):
         # idx is (B, T) array of indices in the current context
         for _ in range(max_new_tokens):
             # crop idx to the last block_size tokens
-            idx_cond = idx[:, -block_size:]
+            idx_cond = idx[:, -g_block_size:]
             # get the predictions
             logits, loss = self(idx_cond)
             # focus only on the last time step
@@ -472,7 +473,27 @@ def test_model(save_name: str, sufix:int, max_token: int =300):
     print("="*30)
     print("\n")
 
-def gen_data_model_for_visualize():
+
+### model visualization
+
+llm_level = ['head','multihead','block','gpt']
+
+def def_model(level:str):
+    head_size = g_n_embd//g_n_head #??
+    if level == 'head':
+        return Head(head_size)
+    elif level == 'head':
+        return  nn.ModuleList([Head(head_size) for _ in range(g_n_head)])
+    elif level == 'block':
+        return nn.Sequential(*[Block(g_n_embd, n_head=g_n_head) for _ in range(g_n_layer)])
+    elif level == 'gpt':
+        return GPTLanguageModel(device)
+    else:
+        print(f'incorrect level value {level}')
+        exit(0)
+
+
+def gen_gpt_data_model_for_visualize():
     m = create_model(device, None, 'train')
     xb, yb = get_batch('train', device)
     return m, xb, yb

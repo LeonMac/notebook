@@ -9,7 +9,7 @@ from torchviz import make_dot # for model visualize
 
 
 def visualize_torchviz(save_name:str):
-    m, xb, yb = gpt.gen_data_model_for_visualize()
+    m, xb, yb = gpt.gen_gpt_data_model_for_visualize()
     _, loss = m(xb, yb)
     save_format = 'png'
     print(f'saving net structure to {save_name}.{save_format}')
@@ -19,8 +19,9 @@ def visualize_netron(save_name:str):
     # import onnx
     save_file = f"{save_name}.onnx"
     print(f'saving net structure to {save_file}')
-    m, xb, yb = gpt.gen_data_model_for_visualize()
-    onnx_program = torch.onnx.export(m, (xb, yb), save_file)
+    m, xb, yb = gpt.gen_gpt_data_model_for_visualize()
+    torch.onnx.export(m, (xb, yb), save_file)
+    # onnx_program = torch.onnx.export(m, (xb, yb), save_file)
     # onnx_program.save(save_file)
 
 if __name__ == "__main__":
