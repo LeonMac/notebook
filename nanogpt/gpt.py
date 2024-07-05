@@ -478,24 +478,44 @@ def test_model(save_name: str, sufix:int, max_token: int =300):
 
 llm_level = ['head','multihead','block','gpt']
 
-def def_model(level:str):
+def gen_model(level:str):
+    mdl = None
     head_size = g_n_embd//g_n_head #??
     if level == 'head':
-        return Head(head_size)
+        mdl = Head(head_size)
     elif level == 'head':
-        return  nn.ModuleList([Head(head_size) for _ in range(g_n_head)])
+        mdl =  nn.ModuleList([Head(head_size) for _ in range(g_n_head)])
     elif level == 'block':
-        return nn.Sequential(*[Block(g_n_embd, n_head=g_n_head) for _ in range(g_n_layer)])
+        mdl =  nn.Sequential(*[Block(g_n_embd, n_head=g_n_head) for _ in range(g_n_layer)])
     elif level == 'gpt':
-        return GPTLanguageModel(device)
+        mdl =  GPTLanguageModel(device)
     else:
         print(f'incorrect level value {level}')
         exit(0)
+    return mdl.to(device)
 
 
-def gen_gpt_data_model_for_visualize():
-    m = create_model(device, None, 'train')
-    xb, yb = get_batch('train', device)
+def gen_data(level:str):
+    head_size = g_n_embd//g_n_head #??
+    x, y = None, None
+    if level == 'head':
+        pass
+    elif level == 'head':
+        pass
+    elif level == 'block':
+        pass
+    elif level == 'gpt':
+        x, y = get_batch('train', device)
+    else:
+        print(f'incorrect level value {level}')
+        exit(0)
+    return x, y
+
+def gen_gpt_data_model_for_visualization(model_level: str):
+    # if model_level == 'gpt':
+    m = gen_model (model_level)
+    # m = create_model(device, None, 'train')
+    xb, yb = gen_data (model_level)
     return m, xb, yb
 
 
