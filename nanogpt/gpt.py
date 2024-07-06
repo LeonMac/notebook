@@ -43,7 +43,7 @@ global learning_rate; learning_rate = 3e-4
 # eval_iters = 200
 
 
-def global_cofig(big:bool= True):
+def global_cofig(mdl_name:str, big:bool= True):
     global g_batch_size # how many independent sequences will we process in parallel?
     global g_block_size # what is the maximum context length for predictions?
 
@@ -71,8 +71,10 @@ def global_cofig(big:bool= True):
         g_n_layer = 1   # number of layer
 
         gpu = 'small'
+
     
-    save_nn_name=f"batch{g_batch_size}-block{g_block_size}-embd{g_n_embd}-head{g_n_head}-layer{g_n_layer}"
+    mdl_sav_name = '' if mdl_name == None else mdl_name
+    save_nn_name=f"mdl[{mdl_sav_name}]-batch{g_batch_size}-block{g_block_size}-embd{g_n_embd}-head{g_n_head}-layer{g_n_layer}"
     print(f"global config for {gpu} GPU") 
 
 
@@ -269,6 +271,7 @@ class GPTLanguageModel(nn.Module):
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd)
         self.position_embedding_table = nn.Embedding(g_block_size, g_n_embd)
+        # multiple block connected on sequential
         self.blocks = nn.Sequential(*[Block(g_n_embd, n_head=g_n_head) for _ in range(g_n_layer)])
         self.ln_f = nn.LayerNorm(g_n_embd) # final layer normalization after all blocks
         self.lm_head = nn.Linear(g_n_embd, g_vocab_size)
@@ -287,7 +290,7 @@ class GPTLanguageModel(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None):  # idx: xb, targets: yb
         B, T = idx.shape
 
         # idx and targets are both (B,T) tensor of integers
@@ -478,7 +481,7 @@ def test_model(save_name: str, sufix:int, max_token: int =300):
 
 llm_level = ['head','multihead','block','gpt']
 
-def gen_model(level:str):
+def gen_model(level:str, dev:str):
     mdl = None
     head_size = g_n_embd//g_n_head #??
     if level == 'head':
@@ -488,24 +491,33 @@ def gen_model(level:str):
     elif level == 'block':
         mdl =  nn.Sequential(*[Block(g_n_embd, n_head=g_n_head) for _ in range(g_n_layer)])
     elif level == 'gpt':
-        mdl =  GPTLanguageModel(device)
+        mdl =  GPTLanguageModel(dev)
     else:
         print(f'incorrect level value {level}')
         exit(0)
-    return mdl.to(device)
+    return mdl.to(dev)
 
 
-def gen_data(level:str):
+def gen_data(level:str, dev:str):
     head_size = g_n_embd//g_n_head #??
-    x, y = None, None
+    x, y = get_batch('train', dev) # this is required for gen data for all levels
     if level == 'head':
         pass
-    elif level == 'head':
+    elif level == 'multihead':
         pass
     elif level == 'block':
+        B, T = x.shape
+
+        token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd).to(dev)
+        position_embedding_table = nn.Embedding(g_block_size, g_n_embd).to(dev)
+        tok_emb =  token_embedding_table(x)
+        pos_emb =  position_embedding_table (torch.arange(T, device=dev))
+        emb_input = (tok_emb+pos_emb).to(dev)
+        mdl = gen_model(level, dev)
+        y = mdl(emb_input)
+    elif level == 'gpt': # data input/output to llm
+        # x, y = get_batch('train', dev)
         pass
-    elif level == 'gpt':
-        x, y = get_batch('train', device)
     else:
         print(f'incorrect level value {level}')
         exit(0)
@@ -513,9 +525,9 @@ def gen_data(level:str):
 
 def gen_gpt_data_model_for_visualization(model_level: str):
     # if model_level == 'gpt':
-    m = gen_model (model_level)
-    # m = create_model(device, None, 'train')
-    xb, yb = gen_data (model_level)
+    m = gen_model (model_level, device)
+    # m = create_model(dev, None, 'train')
+    xb, yb = gen_data (model_level, device)
     return m, xb, yb
 
 

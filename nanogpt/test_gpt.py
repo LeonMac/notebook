@@ -19,7 +19,7 @@ if __name__ == "__main__":
 
     # if complex_model
 
-    gpt.global_cofig(BIG)
+    gpt.global_cofig(None,BIG)
 
     
     model_name_list = ['first','second','third','fourth','fifth']
