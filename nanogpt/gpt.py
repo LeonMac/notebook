@@ -261,7 +261,7 @@ class Block(nn.Module):
     def __init__(self, n_embd, n_head):
         # n_embd: embedding dimension, n_head: the number of heads we'd like
         super().__init__()
-        head_size = n_embd // n_head # why do this?? this overide the global head_size parameter??
+        head_size = n_embd // n_head # todo:why do this?? this overide the global head_size parameter??
         self.sa = MultiHeadAttention(n_head, head_size)
         self.ffwd = FeedFoward(n_embd)
         self.ln1 = nn.LayerNorm(n_embd)
@@ -496,8 +496,8 @@ def gen_model(level:str, dev:str):
     head_size = g_n_embd//g_n_head #??
     if level == 'head':
         mdl = Head(head_size)
-    elif level == 'head':
-        mdl =  nn.ModuleList([Head(head_size) for _ in range(g_n_head)])
+    elif level == 'multihead':
+        mdl =  MultiHeadAttention(g_n_head, head_size)
     elif level == 'block':
         mdl =  nn.Sequential(*[Block(g_n_embd, n_head=g_n_head) for _ in range(g_n_layer)])
     elif level == 'gpt':
@@ -514,7 +514,16 @@ def gen_data(level:str, dev:str):
     if level == 'head':
         pass
     elif level == 'multihead':
-        pass
+        B, T = x.shape
+        token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd).to(dev)
+        position_embedding_table = nn.Embedding(g_block_size, g_n_embd).to(dev)
+        tok_emb =  token_embedding_table(x)
+        pos_emb =  position_embedding_table (torch.arange(T, device=dev))
+        emb_input = (tok_emb+pos_emb).to(dev)
+        mdl = gen_model(level, dev)
+        y = mdl(emb_input)
+        return emb_input, y
+    
     elif level == 'block':
         B, T = x.shape
 

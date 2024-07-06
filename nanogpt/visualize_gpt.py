@@ -17,7 +17,7 @@ def visualize_torchviz(save_path:str, mdl_level:str):
     if mdl_level == 'head':
         pass
     elif mdl_level == 'multihead':
-        pass
+        make_dot(yb, params=dict(list(m.named_parameters()))).render(save_path, format=save_format)
     elif mdl_level == 'block':
         make_dot(yb, params=dict(list(m.named_parameters()))).render(save_path, format=save_format)
     elif mdl_level == 'gpt': 
@@ -42,10 +42,8 @@ def visualize_netron(save_path:str, mdl_level:str):
     if mdl_level == 'head':
         pass
     elif mdl_level == 'multihead':
-        pass
+        torch.onnx.export(m, xb, save_file)
     elif mdl_level == 'block':
-        pass
-        # yb = m(xb)
         torch.onnx.export(m, xb, save_file)
     elif mdl_level == 'gpt': 
         torch.onnx.export(m, (xb, yb), save_file)
