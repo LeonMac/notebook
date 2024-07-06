@@ -15,7 +15,7 @@ def visualize_torchviz(save_path:str, mdl_level:str):
     m      = gpt.gen_model(mdl_level, gpt.device)
     xb, yb = gpt.gen_data(mdl_level, gpt.device)
     if mdl_level == 'head':
-        pass
+        make_dot(yb, params=dict(list(m.named_parameters()))).render(save_path, format=save_format)
     elif mdl_level == 'multihead':
         make_dot(yb, params=dict(list(m.named_parameters()))).render(save_path, format=save_format)
     elif mdl_level == 'block':
@@ -40,7 +40,7 @@ def visualize_netron(save_path:str, mdl_level:str):
     # onnx_program.save(save_file)
 
     if mdl_level == 'head':
-        pass
+        torch.onnx.export(m, xb, save_file)
     elif mdl_level == 'multihead':
         torch.onnx.export(m, xb, save_file)
     elif mdl_level == 'block':
@@ -69,8 +69,8 @@ if __name__ == "__main__":
     # DRY_RUN = True if dry_run == 'yes' else False
     BIG     = True if complex_model == 'big' else False
 
-
     gpt.global_cofig(mdl_name, BIG)
+        
 
     nn_save_path = os.path.join(gpt.prj_path, gpt.model_arch_dir, gpt.save_nn_name)
     visualize_torchviz(nn_save_path, mdl_name)

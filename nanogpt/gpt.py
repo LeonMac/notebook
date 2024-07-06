@@ -511,31 +511,59 @@ def gen_model(level:str, dev:str):
 def gen_data(level:str, dev:str):
     head_size = g_n_embd//g_n_head #??
     x, y = get_batch('train', dev) # this is required for gen data for all levels
+    B, T = x.shape
+    token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd).to(dev)
+    position_embedding_table = nn.Embedding(g_block_size, g_n_embd).to(dev)
+    tok_emb =  token_embedding_table(x)
+    pos_emb =  position_embedding_table (torch.arange(T, device=dev))
+    emb_input = (tok_emb+pos_emb).to(dev)
+
     if level == 'head':
-        pass
-    elif level == 'multihead':
-        B, T = x.shape
-        token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd).to(dev)
-        position_embedding_table = nn.Embedding(g_block_size, g_n_embd).to(dev)
-        tok_emb =  token_embedding_table(x)
-        pos_emb =  position_embedding_table (torch.arange(T, device=dev))
-        emb_input = (tok_emb+pos_emb).to(dev)
+        # B, T = x.shape
+        # token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd).to(dev)
+        # position_embedding_table = nn.Embedding(g_block_size, g_n_embd).to(dev)
+        # tok_emb =  token_embedding_table(x)
+        # pos_emb =  position_embedding_table (torch.arange(T, device=dev))
+        # emb_input = (tok_emb+pos_emb).to(dev)
+
+        kqv_matrix = nn.Linear(g_n_embd, head_size, bias=False).to(dev)
+
+        k = kqv_matrix(emb_input)
+        q = kqv_matrix(emb_input)
+        v = kqv_matrix(emb_input)   
+        wei = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+        # wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
+        wei = F.softmax(wei, dim=-1) # (B, T, T)
+        # wei = self.dropout(wei)
+        # perform the weighted aggregation of the values
+        # v = self.value(x) # (B,T,hs)
+        out = wei @ v # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+        return emb_input , out
+
+    elif level == 'multihead' or level == 'block':
+        # B, T = x.shape
+        # token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd).to(dev)
+        # position_embedding_table = nn.Embedding(g_block_size, g_n_embd).to(dev)
+        # tok_emb =  token_embedding_table(x)
+        # pos_emb =  position_embedding_table (torch.arange(T, device=dev))
+        # emb_input = (tok_emb+pos_emb).to(dev)
+
         mdl = gen_model(level, dev)
-        y = mdl(emb_input)
-        return emb_input, y
+        out = mdl(emb_input)
+        return emb_input, out
     
-    elif level == 'block':
-        B, T = x.shape
+    # elif level == 'block':
+    #     B, T = x.shape
 
-        token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd).to(dev)
-        position_embedding_table = nn.Embedding(g_block_size, g_n_embd).to(dev)
-        tok_emb =  token_embedding_table(x)
-        pos_emb =  position_embedding_table (torch.arange(T, device=dev))
-        emb_input = (tok_emb+pos_emb).to(dev)
-        mdl = gen_model(level, dev)
-        y = mdl(emb_input)
+    #     token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd).to(dev)
+    #     position_embedding_table = nn.Embedding(g_block_size, g_n_embd).to(dev)
+    #     tok_emb =  token_embedding_table(x)
+    #     pos_emb =  position_embedding_table (torch.arange(T, device=dev))
+    #     emb_input = (tok_emb+pos_emb).to(dev)
+    #     mdl = gen_model(level, dev)
+    #     y = mdl(emb_input)
 
-        return emb_input, y
+    #     return emb_input, y
     elif level == 'gpt': # data input/output to llm
         # x, y = get_batch('train', dev)
         return x, y
