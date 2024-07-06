@@ -29,6 +29,15 @@ def memory_info(claim:str ):
     print(f"allocated {tc.memory_allocated(device=None)}, max {tc.max_memory_allocated(device=None)}")
     print(f"reserved  {tc.memory_reserved(device=None)}, max {tc.max_memory_reserved(device=None)} ")
 
+
+def define_dtype(d_type: str= 'long'):
+    if d_type == 'long':
+        return torch.long
+    elif d_type == 'int':
+        return torch.int
+    pass
+
+
 global prj_path;            prj_path  = os.getcwd()
 global model_save_dir;      model_save_dir = 'model_save'
 global model_arch_dir;      model_arch_dir = 'model_arch'
@@ -37,6 +46,7 @@ global model_arch_dir;      model_arch_dir = 'model_arch'
 global device; device = 'cuda' if tc.is_available() else 'cpu'
 global dropout_rate;  dropout_rate = 0.2
 global learning_rate; learning_rate = 3e-4
+global d_type; d_type='long'
 
 # max_iters = 5000
 # eval_interval = 500
@@ -96,10 +106,10 @@ encode = lambda s: [stoi[c] for c in s] # encoder: take a string, output a list 
 decode = lambda l: ''.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
 
 # Train and test splits
-data = torch.tensor(encode(text), dtype=torch.long)
-n = int(0.9*len(data)) # first 90% will be train, rest val
-train_data = data[:n]
-val_data = data[n:]
+glb_data = torch.tensor(encode(text), dtype=define_dtype('long'))
+n = int(0.9*len(glb_data)) # first 90% will be train, rest val
+train_data = glb_data[:n]
+val_data = glb_data[n:]
 
 # dataset_type = ['train','eval']
 # data loading
@@ -468,7 +478,7 @@ def test_model(save_name: str, sufix:int, max_token: int =300):
     m = create_model(device, pre_train_path, 'eval')
 
     # generate from the model
-    context = torch.zeros((1, 1), dtype=torch.long, device=device)
+    context = torch.zeros((1, 1), dtype=define_dtype('long'), device=device)
     print("\n")
     print("="*30)
     print(f"Test model by generating {max_token} tokens:")
@@ -515,19 +525,21 @@ def gen_data(level:str, dev:str):
         emb_input = (tok_emb+pos_emb).to(dev)
         mdl = gen_model(level, dev)
         y = mdl(emb_input)
+
+        return emb_input, y
     elif level == 'gpt': # data input/output to llm
         # x, y = get_batch('train', dev)
-        pass
+        return x, y
     else:
         print(f'incorrect level value {level}')
         exit(0)
-    return x, y
 
-def gen_gpt_data_model_for_visualization(model_level: str):
-    # if model_level == 'gpt':
-    m = gen_model (model_level, device)
-    # m = create_model(dev, None, 'train')
-    xb, yb = gen_data (model_level, device)
-    return m, xb, yb
+
+# def gen_gpt_data_model_for_visualization(model_level: str):
+#     # if model_level == 'gpt':
+#     m = gen_model (model_level, device)
+#     # m = create_model(dev, None, 'train')
+#     xb, yb = gen_data (model_level, device)
+#     return m, xb, yb
 
 

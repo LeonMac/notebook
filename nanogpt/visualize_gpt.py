@@ -11,7 +11,9 @@ from torchviz import make_dot # for model visualize
 def visualize_torchviz(save_path:str, mdl_level:str):
     save_format = 'png'
     print(f'prepare saving net structure to {save_path}.{save_format}')
-    m, xb, yb = gpt.gen_gpt_data_model_for_visualization(mdl_level)
+    # m, xb, yb = gpt.gen_gpt_data_model_for_visualization(mdl_level)
+    m      = gpt.gen_model(mdl_level, gpt.device)
+    xb, yb = gpt.gen_data(mdl_level, gpt.device)
     if mdl_level == 'head':
         pass
     elif mdl_level == 'multihead':
@@ -30,7 +32,9 @@ def visualize_netron(save_path:str, mdl_level:str):
     # import onnx
     save_file = f"{save_path}.onnx"
     print(f'prepare saving net structure to {save_file}')
-    m, xb, yb = gpt.gen_gpt_data_model_for_visualization(mdl_level)
+    m      = gpt.gen_model(mdl_level, gpt.device)
+    xb, yb = gpt.gen_data(mdl_level, gpt.device)
+    # m, xb, yb = gpt.gen_gpt_data_model_for_visualization(mdl_level)
     # torch.onnx.export(m, (xb, yb), save_file)
     # onnx_program = torch.onnx.export(m, (xb, yb), save_file)
     # onnx_program.save(save_file)
@@ -40,15 +44,16 @@ def visualize_netron(save_path:str, mdl_level:str):
     elif mdl_level == 'multihead':
         pass
     elif mdl_level == 'block':
-        yb = m(xb)
-        # torch.onnx.export(m, xb, save_file)
-    elif mdl_level == 'gpt': 
         pass
+        # yb = m(xb)
+        torch.onnx.export(m, xb, save_file)
+    elif mdl_level == 'gpt': 
+        torch.onnx.export(m, (xb, yb), save_file)
 
     else:
         pass
 
-    torch.onnx.export(m, (xb, yb), save_file)
+
 
 
 
