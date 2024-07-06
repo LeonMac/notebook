@@ -14,19 +14,14 @@ def visualize_torchviz(save_path:str, mdl_level:str):
     # m, xb, yb = gpt.gen_gpt_data_model_for_visualization(mdl_level)
     m      = gpt.gen_model(mdl_level, gpt.device)
     xb, yb = gpt.gen_data(mdl_level, gpt.device)
-    if mdl_level == 'head':
-        make_dot(yb, params=dict(list(m.named_parameters()))).render(save_path, format=save_format)
-    elif mdl_level == 'multihead':
-        make_dot(yb, params=dict(list(m.named_parameters()))).render(save_path, format=save_format)
-    elif mdl_level == 'block':
+    if mdl_level in['head','multihead', 'multilayer']:
         make_dot(yb, params=dict(list(m.named_parameters()))).render(save_path, format=save_format)
     elif mdl_level == 'gpt': 
         _, loss = m(xb, yb)
         make_dot(loss, params=dict(list(m.named_parameters()))).render(save_path, format=save_format)
     else:
-        pass
+        exit(0)
 
-    
 
 def visualize_netron(save_path:str, mdl_level:str):
     # import onnx
@@ -34,24 +29,16 @@ def visualize_netron(save_path:str, mdl_level:str):
     print(f'prepare saving net structure to {save_file}')
     m      = gpt.gen_model(mdl_level, gpt.device)
     xb, yb = gpt.gen_data(mdl_level, gpt.device)
-    # m, xb, yb = gpt.gen_gpt_data_model_for_visualization(mdl_level)
-    # torch.onnx.export(m, (xb, yb), save_file)
-    # onnx_program = torch.onnx.export(m, (xb, yb), save_file)
-    # onnx_program.save(save_file)
 
-    if mdl_level == 'head':
+
+    if mdl_level in['head','multihead', 'multilayer']:
         torch.onnx.export(m, xb, save_file)
-    elif mdl_level == 'multihead':
-        torch.onnx.export(m, xb, save_file)
-    elif mdl_level == 'block':
-        torch.onnx.export(m, xb, save_file)
+
     elif mdl_level == 'gpt': 
         torch.onnx.export(m, (xb, yb), save_file)
 
     else:
-        pass
-
-
+        exit(0)
 
 
 
@@ -69,10 +56,16 @@ if __name__ == "__main__":
     # DRY_RUN = True if dry_run == 'yes' else False
     BIG     = True if complex_model == 'big' else False
 
-    gpt.global_cofig(mdl_name, BIG)
-        
-
-    nn_save_path = os.path.join(gpt.prj_path, gpt.model_arch_dir, gpt.save_nn_name)
-    visualize_torchviz(nn_save_path, mdl_name)
-    visualize_netron(nn_save_path, mdl_name)
+    if mdl_name == 'all':
+        for iter_name in gpt.llm_level:
+            gpt.global_cofig(iter_name, BIG)
+            nn_save_path = os.path.join(gpt.prj_path, gpt.model_arch_dir, gpt.save_nn_name)
+            visualize_torchviz(nn_save_path, iter_name)
+            visualize_netron(nn_save_path, iter_name)
+    
+    else:
+        gpt.global_cofig(mdl_name, BIG)
+        nn_save_path = os.path.join(gpt.prj_path, gpt.model_arch_dir, gpt.save_nn_name)
+        visualize_torchviz(nn_save_path, mdl_name)
+        visualize_netron(nn_save_path, mdl_name)
     

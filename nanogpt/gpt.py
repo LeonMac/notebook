@@ -84,7 +84,7 @@ def global_cofig(mdl_name:str, big:bool= True):
 
     
     mdl_sav_name = '' if mdl_name == None else mdl_name
-    save_nn_name=f"mdl[{mdl_sav_name}]-batch{g_batch_size}-block{g_block_size}-embd{g_n_embd}-head{g_n_head}-layer{g_n_layer}"
+    save_nn_name=f"mdl[{mdl_sav_name}]-batch{g_batch_size}-layer{g_block_size}-embd{g_n_embd}-head{g_n_head}-layer{g_n_layer}"
     print(f"global config for {gpu} GPU") 
 
 
@@ -489,7 +489,7 @@ def test_model(save_name: str, sufix:int, max_token: int =300):
 
 ### model visualization
 
-llm_level = ['head','multihead','block','gpt']
+llm_level = ['head','multihead','multilayer','gpt']
 
 def gen_model(level:str, dev:str):
     mdl = None
@@ -498,7 +498,7 @@ def gen_model(level:str, dev:str):
         mdl = Head(head_size)
     elif level == 'multihead':
         mdl =  MultiHeadAttention(g_n_head, head_size)
-    elif level == 'block':
+    elif level == 'multilayer':
         mdl =  nn.Sequential(*[Block(g_n_embd, n_head=g_n_head) for _ in range(g_n_layer)])
     elif level == 'gpt':
         mdl =  GPTLanguageModel(dev)
@@ -519,12 +519,6 @@ def gen_data(level:str, dev:str):
     emb_input = (tok_emb+pos_emb).to(dev)
 
     if level == 'head':
-        # B, T = x.shape
-        # token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd).to(dev)
-        # position_embedding_table = nn.Embedding(g_block_size, g_n_embd).to(dev)
-        # tok_emb =  token_embedding_table(x)
-        # pos_emb =  position_embedding_table (torch.arange(T, device=dev))
-        # emb_input = (tok_emb+pos_emb).to(dev)
 
         kqv_matrix = nn.Linear(g_n_embd, head_size, bias=False).to(dev)
 
@@ -534,36 +528,15 @@ def gen_data(level:str, dev:str):
         wei = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
         # wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
         wei = F.softmax(wei, dim=-1) # (B, T, T)
-        # wei = self.dropout(wei)
-        # perform the weighted aggregation of the values
-        # v = self.value(x) # (B,T,hs)
         out = wei @ v # (B, T, T) @ (B, T, hs) -> (B, T, hs)
         return emb_input , out
 
-    elif level == 'multihead' or level == 'block':
-        # B, T = x.shape
-        # token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd).to(dev)
-        # position_embedding_table = nn.Embedding(g_block_size, g_n_embd).to(dev)
-        # tok_emb =  token_embedding_table(x)
-        # pos_emb =  position_embedding_table (torch.arange(T, device=dev))
-        # emb_input = (tok_emb+pos_emb).to(dev)
+    elif level == 'multihead' or level == 'multilayer':
 
         mdl = gen_model(level, dev)
         out = mdl(emb_input)
         return emb_input, out
     
-    # elif level == 'block':
-    #     B, T = x.shape
-
-    #     token_embedding_table = nn.Embedding(g_vocab_size, g_n_embd).to(dev)
-    #     position_embedding_table = nn.Embedding(g_block_size, g_n_embd).to(dev)
-    #     tok_emb =  token_embedding_table(x)
-    #     pos_emb =  position_embedding_table (torch.arange(T, device=dev))
-    #     emb_input = (tok_emb+pos_emb).to(dev)
-    #     mdl = gen_model(level, dev)
-    #     y = mdl(emb_input)
-
-    #     return emb_input, y
     elif level == 'gpt': # data input/output to llm
         # x, y = get_batch('train', dev)
         return x, y
@@ -572,11 +545,5 @@ def gen_data(level:str, dev:str):
         exit(0)
 
 
-# def gen_gpt_data_model_for_visualization(model_level: str):
-#     # if model_level == 'gpt':
-#     m = gen_model (model_level, device)
-#     # m = create_model(dev, None, 'train')
-#     xb, yb = gen_data (model_level, device)
-#     return m, xb, yb
 
 
