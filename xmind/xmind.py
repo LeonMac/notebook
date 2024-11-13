@@ -73,7 +73,8 @@ class XmindKeyGen(KeyGen):
         # 注入
         with open(self.main_dir.joinpath('main.js'), 'rb') as f:
             lines = f.readlines()
-            lines[5] = b'require("./hook")\n'
+            # lines[5] = b'require("./hook")\n'
+        lines.insert(0, b'require("./hook");\n')
         with open(self.main_dir.joinpath('main.js'), 'wb') as f:
             f.writelines(lines)
         # 替换密钥
